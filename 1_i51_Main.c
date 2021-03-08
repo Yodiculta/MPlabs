@@ -141,8 +141,6 @@ void Timer0_ISR(void) interrupt 1 using 1 {
 
             
         }			
-        else
-            LCD_printchar(key_number) 			// выводим на ЖК дисплей	
     }
 
     ++devider;
