@@ -1,37 +1,47 @@
-#include <stdio.h>
-#include <intrins.h>
-#include <string.h>
-#define MAX_SCAN_STEP 4
-#define MAX_KEY_COUNT 2
-#define KEY_FREQ_DEVIDER 2
-#define FREQ_DEVIDER 20
-#include "KEYBOARD.H"
+#include "BEEP.H"
+#include "DELAY.H"
 #include "SPI.H"
 #include "LCD_HD44780.H"
-#include "DELAY.H"
+#include "I2C.H"
+#include "KEYBOARD.H"
 #include "LED7.H"
+#include "UART.H"
 #include "DS1307.H"
 #include "DS1820.H"
 #include "AT24CXX.H"
-#include "BEEP.H"
-#include "I2C.H"
+#include "CONVERT.H"
 #include "SHIFT.H"
-bit scan_start = 0;
-bit key_pressed = 0;
-bit key_prev = 0; 
-unsigned char key_number = 0;
-unsigned char scan_step = 0;
-unsigned char scan_code[] = {0xFE,0xFD,0xFB,0xF7};
-unsigned char key_count = 0;
-unsigned char devider = 0;
-unsigned char key_devider = 0;
-unsigned char i; 
+#include "ADC.H"
+
+// РЎС‚СЂРѕРєРѕРІС‹Рµ РєРѕРЅСЃС‚Р°РЅС‚С‹, РєРѕС‚РѕСЂС‹Рµ С…СЂР°РЅСЏС‚СЊСЃСЏ РІ flash-РїР°РјСЏС‚Рё, С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ
+// РїРµСЂРµРїРѕР»РЅРµРЅРёСЏ РѕРїРµСЂР°С‚РёРІРЅРѕР№ РїР°РјСЏС‚Рё
+
+flash char UartMessage[] = "                -=  STEND RK-10  =-\r\n"
+						   "       Hardware ver. 1.0, Firmware ver. 2.0\r\n";
+
+flash unsigned char LcdMessageLine1[] = { 45, 61, 67, 84, 69, 72, 224, 32, 32, 80, 75, 45, 49, 48, 61, 45, 0 };
+flash unsigned char LcdMessageLine2[] = "Zadacha 1";
+
+flash char timeStr[] = "Time: ";
+flash char dateStr[] = "Date: ";
+flash char enterAddressStr[] = "Enter address(0..255): ";
+flash char enterValueStr[] = "Enter value(0..255): ";
+flash char valueStr[] = "Value: ";
+flash char temperatureStr[] = "Temperature: ";
+
+flash char enterHourStr[] = "Enter hour: ";
+flash char enterMinuteStr[] = "Enter minute: ";
+flash char enterSecondStr[] = "Enter second: ";
+flash char enterDayStr[] = "Enter day: ";
+flash char enterMonthStr[] = "Enter month: ";
+flash char enterYearStr[] = "Enter year: ";
+flash char sensorNotConnectedStr[] = "Sensor is not connected";
 
 void Timer0_ISR(void) interrupt 1 using 1 {
     TF2 = 0;
 
     if( !scan_start){
-        // подача сигнала на все строки
+        // ГЇГ®Г¤Г Г·Г  Г±ГЁГЈГ­Г Г«Г  Г­Г  ГўГ±ГҐ Г±ГІГ°Г®ГЄГЁ
         P2 = 0xF0;
         if( P2 != 0xF0 ){
             if( !key_pressed ){
@@ -48,7 +58,7 @@ void Timer0_ISR(void) interrupt 1 using 1 {
             }
         }
     }else{
-        // последовательная подача сигнала на каждую из строк
+        // ГЇГ®Г±Г«ГҐГ¤Г®ГўГ ГІГҐГ«ГјГ­Г Гї ГЇГ®Г¤Г Г·Г  Г±ГЁГЈГ­Г Г«Г  Г­Г  ГЄГ Г¦Г¤ГіГѕ ГЁГ§ Г±ГІГ°Г®ГЄ
         ++key_devider;
         if(key_devider == KEY_FREQ_DEVIDER){
             key_devider = 0;
@@ -76,11 +86,11 @@ void Timer0_ISR(void) interrupt 1 using 1 {
         }
     }
 
-     // если клавиша нажата
+     // ГҐГ±Г«ГЁ ГЄГ«Г ГўГЁГёГ  Г­Г Г¦Г ГІГ 
     if( key_pressed && !key_prev ){ 
 	i=0;
 	while(i!=3)
-	{						//]включение зуммера
+	{						//]ГўГЄГ«ГѕГ·ГҐГ­ГЁГҐ Г§ГіГ¬Г¬ГҐГ°Г 
 	signal_first();
 	signal_second();
 	i++;
@@ -88,13 +98,13 @@ void Timer0_ISR(void) interrupt 1 using 1 {
         	if( key_number <= 9 )   
 		{	
 			
-			LCD_printchar( keynumber + '0' ); 	// выводим на ЖК дисплей
+			LCD_printchar( keynumber + '0' ); 	// ГўГ»ГўГ®Г¤ГЁГ¬ Г­Г  Г†ГЉ Г¤ГЁГ±ГЇГ«ГҐГ©
 			keyCount++;
 
 			if( keyCount == LCD_WIDTH )
 				LCD_gotoxy( 0, 1 );
 			
-			LED7_setdigit( KEY_getkeynumber( key ) ); // выводим на семисегментный индикатор
+			LED7_setdigit( KEY_getkeynumber( key ) ); // ГўГ»ГўГ®Г¤ГЁГ¬ Г­Г  Г±ГҐГ¬ГЁГ±ГҐГЈГ¬ГҐГ­ГІГ­Г»Г© ГЁГ­Г¤ГЁГЄГ ГІГ®Г°
 			KEY_waitforkeyrelease();
 		}
 	if( key == KEY_ASTERISK )
@@ -102,7 +112,7 @@ void Timer0_ISR(void) interrupt 1 using 1 {
 
 }			
 	else
-		LCD_printchar(key_number) 			// выводим на ЖК дисплей
+		LCD_printchar(key_number) 			// ГўГ»ГўГ®Г¤ГЁГ¬ Г­Г  Г†ГЉ Г¤ГЁГ±ГЇГ«ГҐГ©
 
 	
     }
@@ -112,23 +122,16 @@ void Timer0_ISR(void) interrupt 1 using 1 {
     if(devider == FREQ_DEVIDER){
          devider = 0;
      }
-/*
-    // если клавиша отпущена
-    if(    !key_pressed && key_prev ){
-        do_smth();    	//делаем что-то при отжатии (например, выключение зуммера)
-        }
-        key_prev = key_pressed;
-    }
-*/
+
 } 
 
 
 /*
-При запуске программы на экран терминала выводится сообщение «Задача №1». //////////+
-При нажатии на любую кнопку клавиатуры PC зуммер дает 3 сигнала дли-тельностью 100 мс с паузой 100 мс, +
-после паузы 300 мс – 3 сигнала длитель-ностью 300 мс с паузой 100 мс, после паузы 300 мс - 3 сигнала длительно-стью  +
-100 мс с паузой 100 мс, и символ выводится на ЖКИ стенда. При нажа-тии же клавиш 0-9 соответствующие цифры, помимо 
-звукового сигнала, вы-водятся еще на семисегментный индикатор.
+ГЏГ°ГЁ Г§Г ГЇГіГ±ГЄГҐ ГЇГ°Г®ГЈГ°Г Г¬Г¬Г» Г­Г  ГЅГЄГ°Г Г­ ГІГҐГ°Г¬ГЁГ­Г Г«Г  ГўГ»ГўГ®Г¤ГЁГІГ±Гї Г±Г®Г®ГЎГ№ГҐГ­ГЁГҐ В«Г‡Г Г¤Г Г·Г  В№1В». //////////+
+ГЏГ°ГЁ Г­Г Г¦Г ГІГЁГЁ Г­Г  Г«ГѕГЎГіГѕ ГЄГ­Г®ГЇГЄГі ГЄГ«Г ГўГЁГ ГІГіГ°Г» PC Г§ГіГ¬Г¬ГҐГ° Г¤Г ГҐГІ 3 Г±ГЁГЈГ­Г Г«Г  Г¤Г«ГЁ-ГІГҐГ«ГјГ­Г®Г±ГІГјГѕ 100 Г¬Г± Г± ГЇГ ГіГ§Г®Г© 100 Г¬Г±, +
+ГЇГ®Г±Г«ГҐ ГЇГ ГіГ§Г» 300 Г¬Г± вЂ“ 3 Г±ГЁГЈГ­Г Г«Г  Г¤Г«ГЁГІГҐГ«Гј-Г­Г®Г±ГІГјГѕ 300 Г¬Г± Г± ГЇГ ГіГ§Г®Г© 100 Г¬Г±, ГЇГ®Г±Г«ГҐ ГЇГ ГіГ§Г» 300 Г¬Г± - 3 Г±ГЁГЈГ­Г Г«Г  Г¤Г«ГЁГІГҐГ«ГјГ­Г®-Г±ГІГјГѕ  +
+100 Г¬Г± Г± ГЇГ ГіГ§Г®Г© 100 Г¬Г±, ГЁ Г±ГЁГ¬ГўГ®Г« ГўГ»ГўГ®Г¤ГЁГІГ±Гї Г­Г  Г†ГЉГ€ Г±ГІГҐГ­Г¤Г . ГЏГ°ГЁ Г­Г Г¦Г -ГІГЁГЁ Г¦ГҐ ГЄГ«Г ГўГЁГё 0-9 Г±Г®Г®ГІГўГҐГІГ±ГІГўГіГѕГ№ГЁГҐ Г¶ГЁГґГ°Г», ГЇГ®Г¬ГЁГ¬Г® 
+Г§ГўГіГЄГ®ГўГ®ГЈГ® Г±ГЁГЈГ­Г Г«Г , ГўГ»-ГўГ®Г¤ГїГІГ±Гї ГҐГ№ГҐ Г­Г  Г±ГҐГ¬ГЁГ±ГҐГЈГ¬ГҐГ­ГІГ­Г»Г© ГЁГ­Г¤ГЁГЄГ ГІГ®Г°.
 */
 
 void signal_first()
@@ -143,51 +146,92 @@ void signal_second()
 	DELAY_MCS(100);
 }
 
-// Вывод приветствия на LCD экран
-
 void OutputStartLCDMessage()
 {
-	unsigned char mes_line1[] = { 45, 61, 67, 84, 69, 72, 224, 32, 32, 80, 75, 45, 49, 48, 61, 45, 0 };
-	unsigned char mes_line2[] = "Zadacha 1";
-
-	LCD_print( mes_line1 );
+	LCD_print_flash( LcdMessageLine1 );
 	LCD_gotoxy( 0, 1 );
-	LCD_print( mes_line2 );
+	LCD_print_flash( LcdMessageLine2 );
+}
+void AutonomousMode()
+{
+	LCD_clrscr();
+	
+	static char strTemp[ 5 ] = { 0 };
+	LCD_gotoxy( 0, 0 );
+
+	switch( DS1820_gettemperature( strTemp ) ) {	// РџРѕР»СѓС‡Р°РµРј С‚РµРјРїРµСЂР°С‚СѓСЂСѓ
+	case 0:											// РЎРµРЅСЃРѕСЂ РЅРµ РїРѕРґРєР»СЋС‡РµРЅ
+		strTemp[ 0 ] = 0;
+		break;
+	case 2:											// Р”Р°РЅРЅС‹Рµ РЅРµ РіРѕС‚РѕРІС‹
+		DS1820_startconverttemp();
+		break;
+	}
+	LCD_print( strTemp );
+
+	char time[9];
+	DS1307_gettime(time);
+	
+	LCD_gotoxy( 6, 0 );
+	LCD_print( time );
+
+	
+	LCD_gotoxy( 0, 1 );
+	char keyname = KEY_getkeyname( KEY_getkey() );
+	if( keyname != 0 )
+		LCD_printchar( keyname );
+	
+	
+	LCD_gotoxy( 3, 1 );
+	char strADC1[ 5 ];
+	ShortToString( ADC_get( 0 ), strADC1 );
+	LCD_print( strADC1 );
+	
+	LCD_gotoxy( 9, 1 );
+	char strADC2[ 5 ];
+	ShortToString( ADC_get( 1 ), strADC2 );
+	LCD_print( strADC2 );
+	
+	static unsigned char ledCount = 0;
+	if( ledCount % 3 == 0 )							// Р§С‚РѕР±С‹ РёРЅРґРёРєР°С‚РѕСЂС‹ СЃР»РёС€РєРѕРј
+	{									// С‡Р°СЃС‚Рѕ РЅРµ РјРёРіР°Р»Рё, РјРµРЅСЏРµРј
+		LED1_PORT = !LED1_PORT;						// РёС… СЃРѕСЃС‚РѕСЏРЅРёРµ РѕРґРёРЅ СЂР°Р· РЅР°
+		LED2_PORT = !LED2_PORT;						// С‚СЂРё РІС‹Р·РѕРІР° С„СѓРЅРєС†РёРё
+		LED3_PORT = !LED3_PORT;
+	}
+	ledCount++;
 }
 
+int main()
+{
+	LED1_DDR = 1;
+	LED2_DDR = 1;
+	LED3_DDR = 1;
+	
+	I2C_init();
+	SPI_init();
+	LCD_init();
+	LCD_clrscr();
 
+	UART_init( CALC_UBRR( 57600 ) );
+	__enable_interrupt();
 
-void main()
-{   
-    
-    P0 = 0xFF;				// Настраиваем порты на вывод 
-	P1 = 0xFF;
-	P2 = 0xFF;	
-	P3 = 0xFF;
-
-	SCON  = 0x50;			// 8-битовый UART
-	TMOD  = 0x20;			// Таймер 1: 8-битовый режим, авто-перезагружаемый 
-	TH1   = 250;			// Задаем начальное значение таймера для скорости 9600 бод
-	TL1   = 250;			
-	TR1   = 1;				// Запускаем таймер
-	TI    = 1;
-	ES=1;                   // Разрешаем прерывание от UART
-
-	printf ("                -=  STEND RK-10  =-\n");			// Посылаем в UART сообщение 
-	printf ("       Hardware ver. 1.0, Firmware ver. 1.0\n");
-
-	DELAY_MCS( 174 );
-
-	SPI_init();             // Инициализируем SPI интерфейс
-
-	I2C_init();				// Инициализируем I2C интерфейс
-	DS1307_init();          // Инициализируем часы реального времени
 	DS1820_startconverttemp();
-   
-	LCD_init();				// Инициализируем LCD дисплей
-	LCD_clrscr();			// Очищаем экран LCD дисплея
-
+	
+	UART_sendstring_flash( UartMessage );
 	OutputStartLCDMessage();
-	printf( "Enter key:" );
-	Beep( 300 );
-}   
+
+	UART_sendstring( "Enter task number: " );
+
+	Beep( 500 );
+
+	DELAY_MS( 1000 );
+
+	while(1)
+	{
+		AutonomousMode();
+                SHIFT_write(0);
+		DELAY_MS( 200 );
+	}
+
+}
