@@ -1,24 +1,42 @@
-#include <stdio.h>
-#include <intrins.h>
-#include <string.h>
-
-#include "KEYBOARD.H"
+#include "BEEP.H"
+#include "DELAY.H"
 #include "SPI.H"
 #include "LCD_HD44780.H"
-#include "DELAY.H"
+#include "I2C.H"
+#include "KEYBOARD.H"
 #include "LED7.H"
+#include "UART.H"
 #include "DS1307.H"
 #include "DS1820.H"
 #include "AT24CXX.H"
-#include "BEEP.H"
-#include "I2C.H"
+#include "CONVERT.H"
 #include "SHIFT.H"
-/*
-При нажатии клавиши 1 клавиатуры PC предлагается ввести время и дату, ко-торые затем устанавливаются как текущие в RTC DS1307. При нажатии кла-виши 2 на ЖКИ стенда в первой строке выводится текущее время, во второй дата. При нажатии клавиши 3 происходит очистка ЖКИ.
-Нажатие на другие клавиши игнорируется.
-*/
-// в последовательный порт выводиться текущее время,
-//			 полученное с датчика DS1307
+#include "ADC.H"
+
+// РЎС‚СЂРѕРєРѕРІС‹Рµ РєРѕРЅСЃС‚Р°РЅС‚С‹, РєРѕС‚РѕСЂС‹Рµ С…СЂР°РЅСЏС‚СЊСЃСЏ РІ flash-РїР°РјСЏС‚Рё, С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ
+// РїРµСЂРµРїРѕР»РЅРµРЅРёСЏ РѕРїРµСЂР°С‚РёРІРЅРѕР№ РїР°РјСЏС‚Рё
+
+flash char UartMessage[] = "                -=  STEND RK-10  =-\r\n"
+						   "       Hardware ver. 1.0, Firmware ver. 2.0\r\n";
+
+flash unsigned char LcdMessageLine1[] = { 45, 61, 67, 84, 69, 72, 224, 32, 32, 80, 75, 45, 49, 48, 61, 45, 0 };
+flash unsigned char LcdMessageLine2[] = "Zadacha 2";
+
+flash char timeStr[] = "Time: ";
+flash char dateStr[] = "Date: ";
+flash char enterAddressStr[] = "Enter address(0..255): ";
+flash char enterValueStr[] = "Enter value(0..255): ";
+flash char valueStr[] = "Value: ";
+flash char temperatureStr[] = "Temperature: ";
+
+flash char enterHourStr[] = "Enter hour: ";
+flash char enterMinuteStr[] = "Enter minute: ";
+flash char enterSecondStr[] = "Enter second: ";
+flash char enterDayStr[] = "Enter day: ";
+flash char enterMonthStr[] = "Enter month: ";
+flash char enterYearStr[] = "Enter year: ";
+flash char sensorNotConnectedStr[] = "Sensor is not connected";
+
 
 void DateTimeOutput()
 {
@@ -26,131 +44,158 @@ void DateTimeOutput()
 	DS1307_gettime(time);
 	DS1307_getdate(date);
 
-	LCD_gotoxy( 6, 0 );
-	LCD_print( time );
-
-	LCD_gotoxy( 6, 1 );
-	LCD_print( date );
+	UART_sendstring_flash( timeStr );
+	UART_sendstring( time );
+	UART_sendcrlf();
+	UART_sendstring_flash( dateStr );
+	UART_sendstring( date );
+	UART_sendcrlf();
 }
-
-//в терминальной программе пользователь вводит время и 
-//           дату и они устанавливаются как текущие в датчик DS1307
 
 void DateTimeInputAndSetCurrent()
 {
     unsigned char hour, minute, second;
 	unsigned char day, month, year;
-
-    printf( "Enter hour: ");
-	scanf( "%bu", &hour );
-    printf( "Enter minute: ");
-	scanf( "%bu", &minute );
-    printf( "Enter second: ");
-	scanf( "%bu", &second );
-
-	DS1307_settime( hour, minute, second );
 	
-	printf( "Enter day: ");
-	scanf( "%bu", &day );
-    printf( "Enter month: ");
-	scanf( "%bu", &month );
-    printf( "Enter year: ");
-	scanf( "%bu", &year );
+	UART_sendstring_flash( enterHourStr );
+	hour = UART_receivevalue();	
+	UART_sendstring_flash( enterMinuteStr );
+	minute = UART_receivevalue();	
+	UART_sendstring_flash( enterSecondStr );
+	second = UART_receivevalue();	
+	
+	DS1307_settime( hour, minute, second );
 
-	DS1307_setdate( day, month, year ); 	
+	UART_sendstring_flash( enterDayStr );
+	day = UART_receivevalue();	
+	UART_sendstring_flash( enterMonthStr );
+	month = UART_receivevalue();	
+	UART_sendstring_flash( enterYearStr );
+	year = UART_receivevalue();	
+	
+	DS1307_setdate( day, month, year );	
 }
 
-
-// Вывод приветствия на LCD экран
 
 void OutputStartLCDMessage()
 {
-	unsigned char mes_line1[] = { 45, 61, 67, 84, 69, 72, 224, 32, 32, 80, 75, 45, 49, 48, 61, 45, 0 };
-	unsigned char mes_line2[] = "Zadacha 2";
-
-	LCD_print( mes_line1 );
+	LCD_print_flash( LcdMessageLine1 );
 	LCD_gotoxy( 0, 1 );
-	LCD_print( mes_line2 );
+	LCD_print_flash( LcdMessageLine2 );
 }
 
+// Р¤СѓРЅРєС†РёСЏ-РѕР±СЂР°Р±РѕС‚С‡РёРє РїСЂРµСЂС‹РІР°РЅРёСЏ, РІРѕР·РЅРёРєР°СЋС‰РµРіРѕ РєРѕРіРґР° РІРѕ РІС…РѕРґРЅРѕРј Р±СѓС„РµСЂРµ UART
+// РёРјРµСЋС‚СЃСЏ РґР°РЅРЅС‹Рµ.
+// Р’ СЌС‚РѕР№ С„СѓРЅРєС†РёРё РјС‹ РїРѕР»СѓС‡Р°РµРј РЅРѕРјРµСЂ Р·Р°РґР°РЅРёСЏ Рё РІС‹РїРѕР»РЅСЏРµРј РµРіРѕ.
 
-// Обработчик прерываний от UART
-
-void Serial_ISR(void) interrupt 4 using 0 
+#pragma vector = UART_RXC_vect
+__interrupt void UART0_RX_interrupt()
 {
-    unsigned char task;
-
-    if(RI){
-  	
-	scanf( "%bu", &task );
-
-    switch( task ) {
-		case 1:
-			DateTimeInputAndSetCurrent();
-			break;
-		case 2:
-			DateTimeOutput();
-			break;
-		case 3:
-			LCD_clrscr();
-			break;
+	unsigned char task;
+	task = UART_receivevalue();
+	if(RI){	
+		switch( task ) {
+			case 1:
+				DateTimeInputAndSetCurrent();
+				break;
+			case 2:
+				DateTimeOutput();
+				break;
+			case 3:
+				LCD_clrscr();
+				break;
 		}
+		UART_sendstring( "Enter task number: " );
+	}
 
-    printf( "Enter task number:" );}
+// Р¤СѓРЅРєС†РёСЏ Р°РІС‚РѕРЅРѕРјРЅРѕРіРѕ СЂРµР¶РёРјР°, С‚Рѕ РµСЃС‚СЊ СЂРµР¶РёРјР°, РєРѕРіРґР° РЅРµС‚ РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє
+// РєРѕРјРїСЊСЋС‚РµСЂСѓ С‡РµСЂРµР· UART-РёРЅС‚РµСЂС„РµР№СЃ.
+// РќР° LCD-СЌРєСЂР°РЅ РІС‹РІРѕРґСЏС‚СЃСЏ:
+// 		РІ РїРµСЂРІРѕР№ СЃС‚СЂРѕРєРµ - С‚РµРєСѓС‰Р°СЏ С‚РµРјРїРµСЂР°С‚СѓСЂР° Рё С‚РµРєСѓС‰РµРµ РІСЂРµРјСЏ
+//		РІРѕ РІС‚РѕСЂРѕР№ СЃС‚СЂРѕРєРµ - С‚РµРєСѓС‰Р°СЏ РґР°С‚Р°
+// LED РёРЅРґРёРєР°С‚РѕСЂС‹ РјРµРЅСЏСЋС‚ СЃРІРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ
+void AutonomousMode()
+{
+	LCD_clrscr();
+	
+	static char strTemp[ 5 ] = { 0 };
+	LCD_gotoxy( 0, 0 );
+
+	switch( DS1820_gettemperature( strTemp ) ) {	// РџРѕР»СѓС‡Р°РµРј С‚РµРјРїРµСЂР°С‚СѓСЂСѓ
+	case 0:											// РЎРµРЅСЃРѕСЂ РЅРµ РїРѕРґРєР»СЋС‡РµРЅ
+		strTemp[ 0 ] = 0;
+		break;
+	case 2:											// Р”Р°РЅРЅС‹Рµ РЅРµ РіРѕС‚РѕРІС‹
+		DS1820_startconverttemp();
+		break;
+	}
+	LCD_print( strTemp );
+
+	char time[9];
+	DS1307_gettime(time);
+	
+	LCD_gotoxy( 6, 0 );
+	LCD_print( time );
+
+	
+	LCD_gotoxy( 0, 1 );
+	char keyname = KEY_getkeyname( KEY_getkey() );
+	if( keyname != 0 )
+		LCD_printchar( keyname );
+	
+	
+	LCD_gotoxy( 3, 1 );
+	char strADC1[ 5 ];
+	ShortToString( ADC_get( 0 ), strADC1 );
+	LCD_print( strADC1 );
+	
+	LCD_gotoxy( 9, 1 );
+	char strADC2[ 5 ];
+	ShortToString( ADC_get( 1 ), strADC2 );
+	LCD_print( strADC2 );
+	
+	static unsigned char ledCount = 0;
+	if( ledCount % 3 == 0 )							// Р§С‚РѕР±С‹ РёРЅРґРёРєР°С‚РѕСЂС‹ СЃР»РёС€РєРѕРј
+	{									// С‡Р°СЃС‚Рѕ РЅРµ РјРёРіР°Р»Рё, РјРµРЅСЏРµРј
+		LED1_PORT = !LED1_PORT;						// РёС… СЃРѕСЃС‚РѕСЏРЅРёРµ РѕРґРёРЅ СЂР°Р· РЅР°
+		LED2_PORT = !LED2_PORT;						// С‚СЂРё РІС‹Р·РѕРІР° С„СѓРЅРєС†РёРё
+		LED3_PORT = !LED3_PORT;
+	}
+	ledCount++;
 }
 
 
-void main()
-{   
-    
-    P0 = 0xFF;				// Настраиваем порты на вывод 
-	P1 = 0xFF;
-	P2 = 0xFF;	
-	P3 = 0xFF;
 
-	SCON  = 0x50;			// 8-битовый UART
-	TMOD  = 0x20;			// Таймер 1: 8-битовый режим, авто-перезагружаемый 
-	TH1   = 250;			// Задаем начальное значение таймера для скорости 9600 бод
-	TL1   = 250;			
-	TR1   = 1;				// Запускаем таймер
-	TI    = 1;
-	ES=1;                   // Разрешаем прерывание от UART
+int main()
+{
+	LED1_DDR = 1;
+	LED2_DDR = 1;
+	LED3_DDR = 1;
+	
+	I2C_init();
+	SPI_init();
+	LCD_init();
+	LCD_clrscr();
 
-	printf ("                -=  STEND RK-10  =-\n");			// Посылаем в UART сообщение 
-	printf ("       Hardware ver. 1.0, Firmware ver. 1.0\n");
+	UART_init( CALC_UBRR( 57600 ) );
+	__enable_interrupt();
 
-	DELAY_MCS( 174 );
-
-	SPI_init();             // Инициализируем SPI интерфейс
-
-	I2C_init();				// Инициализируем I2C интерфейс
-	DS1307_init();          // Инициализируем часы реального времени
 	DS1820_startconverttemp();
-   
-	LCD_init();				// Инициализируем LCD дисплей
-	LCD_clrscr();			// Очищаем экран LCD дисплея
-
+	
+	UART_sendstring_flash( UartMessage );
 	OutputStartLCDMessage();
 
-    printf( "Enter task number:" );
+	UART_sendstring( "Enter task number: " );
 
-    Beep( 300 );
+	Beep( 500 );
 
-    while(1) 
-	{ 
-	     char keyname;
-	     EA=0;	
-	     
-		 AutonomousMode();
-			 
-		 keyname = KEY_getkeynumber( KEY_getkey() );
-         if( keyname <= 3 )
-            LED7_setdigit( keyname );
-		 else
-		    SHIFT_write(0);
+	DELAY_MS( 1000 );
 
-	     EA=1;
-
-		 delay_ms( 10 );
+	while(1)
+	{
+		AutonomousMode();
+                SHIFT_write(0);
+		DELAY_MS( 200 );
 	}
-}   
+
+}
